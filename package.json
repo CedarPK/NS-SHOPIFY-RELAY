@@ -1,0 +1,8 @@
+{
+  "name": "shopify-netsuite-refund-relay",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "oauth-1.0a": "^2.2.6"
+  }
+}

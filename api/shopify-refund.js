@@ -1,0 +1,112 @@
+// This file automatically becomes a live URL once deployed to Vercel:
+//   https://<your-project-name>.vercel.app/api/shopify-refund
+// That URL is what you paste into the Shopify webhook.
+
+export const config = {
+  api: {
+    bodyParser: false // we need the raw, untouched body to verify Shopify's signature
+  }
+};
+
+import crypto from 'crypto';
+import OAuth from 'oauth-1.0a';
+
+function getRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => { data += chunk; });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+function verifyShopifyHmac(rawBody, hmacHeader, secret) {
+  const digest = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmacHeader || ''));
+  } catch {
+    return false; // header missing or wrong length — definitely not valid
+  }
+}
+
+async function getShopifyOrderFinancialStatus(orderId) {
+  const shop = process.env.SHOPIFY_SHOP_DOMAIN;
+  const token = process.env.SHOPIFY_ADMIN_API_TOKEN;
+
+  const res = await fetch(
+    `https://${shop}/admin/api/2024-01/orders/${orderId}.json?fields=id,financial_status`,
+    { headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' } }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Shopify order lookup failed: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  return data.order.financial_status; // "refunded", "partially_refunded", "paid", etc.
+}
+
+function buildNetsuiteAuthHeader(url) {
+  const oauth = OAuth({
+    consumer: {
+      key: process.env.NETSUITE_CONSUMER_KEY,
+      secret: process.env.NETSUITE_CONSUMER_SECRET
+    },
+    signature_method: 'HMAC-SHA256',
+    hash_function(baseString, key) {
+      return crypto.createHmac('sha256', key).update(baseString).digest('base64');
+    }
+  });
+
+  const requestData = { url, method: 'POST' };
+  const token = {
+    key: process.env.NETSUITE_TOKEN_ID,
+    secret: process.env.NETSUITE_TOKEN_SECRET
+  };
+
+  return oauth.toHeader(oauth.authorize(requestData, token));
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const rawBody = await getRawBody(req);
+  const hmacHeader = req.headers['x-shopify-hmac-sha256'];
+
+  const verified = verifyShopifyHmac(rawBody, hmacHeader, process.env.SHOPIFY_WEBHOOK_SECRET);
+  if (!verified) {
+    return res.status(401).json({ error: 'Invalid HMAC — request did not come from Shopify' });
+  }
+
+  const payload = JSON.parse(rawBody);
+  const orderId = payload.order_id;
+
+  let financialStatus;
+  try {
+    financialStatus = await getShopifyOrderFinancialStatus(orderId);
+  } catch (e) {
+    return res.status(502).json({ error: e.message });
+  }
+
+  if (financialStatus !== 'refunded') {
+    // Partial refund, or something else — do not close the order.
+    return res.status(200).json({
+      skipped: true,
+      reason: `financial_status is "${financialStatus}", not a full refund`
+    });
+  }
+
+  const netsuiteUrl = process.env.NETSUITE_RESTLET_URL;
+  const authHeader = buildNetsuiteAuthHeader(netsuiteUrl);
+
+  const nsResponse = await fetch(netsuiteUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader },
+    body: JSON.stringify({ ...payload, financial_status: financialStatus })
+  });
+
+  const result = await nsResponse.json();
+  return res.status(nsResponse.ok ? 200 : 502).json(result);
+}
