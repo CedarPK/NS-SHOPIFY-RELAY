@@ -95,45 +95,80 @@ function buildNetsuiteAuthHeader(url) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  const rawBody = await getRawBody(req);
-  const hmacHeader = req.headers['x-shopify-hmac-sha256'];
-
-  const verified = verifyShopifyHmac(rawBody, hmacHeader, process.env.SHOPIFY_WEBHOOK_SECRET);
-  if (!verified) {
-    return res.status(401).json({ error: 'Invalid HMAC — request did not come from Shopify' });
-  }
-
-  const payload = JSON.parse(rawBody);
-  const orderId = payload.order_id;
-
-  let financialStatus;
   try {
-    financialStatus = await getShopifyOrderFinancialStatus(orderId);
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    const rawBody = await getRawBody(req);
+    const hmacHeader = req.headers['x-shopify-hmac-sha256'];
+
+    const verified = verifyShopifyHmac(rawBody, hmacHeader, process.env.SHOPIFY_WEBHOOK_SECRET);
+    if (!verified) {
+      return res.status(401).json({ error: 'Invalid HMAC — request did not come from Shopify' });
+    }
+
+    const payload = JSON.parse(rawBody);
+    const orderId = payload.order_id;
+
+    let financialStatus;
+    try {
+      financialStatus = await getShopifyOrderFinancialStatus(orderId);
+    } catch (e) {
+      console.error('Shopify lookup failed', e);
+      return res.status(502).json({ error: `Shopify lookup failed: ${e.message}` });
+    }
+
+    if (financialStatus !== 'refunded') {
+      // Partial refund, or something else — do not close the order.
+      return res.status(200).json({
+        skipped: true,
+        reason: `financial_status is "${financialStatus}", not a full refund`
+      });
+    }
+
+    const netsuiteUrl = process.env.NETSUITE_RESTLET_URL;
+    if (!netsuiteUrl) {
+      console.error('NETSUITE_RESTLET_URL is not set');
+      return res.status(500).json({ error: 'NETSUITE_RESTLET_URL environment variable is missing' });
+    }
+
+    const authHeader = buildNetsuiteAuthHeader(netsuiteUrl);
+
+    let nsResponse;
+    try {
+      nsResponse = await fetch(netsuiteUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ ...payload, financial_status: financialStatus })
+      });
+    } catch (e) {
+      console.error('Could not reach NetSuite', e);
+      return res.status(502).json({ error: `Could not reach NetSuite: ${e.message}` });
+    }
+
+    const rawResult = await nsResponse.text();
+    let result;
+    try {
+      result = JSON.parse(rawResult);
+    } catch {
+      // NetSuite didn't return JSON — likely an HTML error page (bad URL,
+      // expired token, deployment not released, etc). Surface the raw
+      // text so it's visible in the logs instead of crashing.
+      console.error('NetSuite returned non-JSON response', nsResponse.status, rawResult.slice(0, 500));
+      return res.status(502).json({
+        error: 'NetSuite returned a non-JSON response',
+        netsuiteStatus: nsResponse.status,
+        netsuiteBodyPreview: rawResult.slice(0, 500)
+      });
+    }
+
+    return res.status(nsResponse.ok ? 200 : 502).json(result);
+
   } catch (e) {
-    return res.status(502).json({ error: e.message });
+    // Catch-all so a crash always produces a real, readable log entry
+    // instead of a blank 502.
+    console.error('Unhandled error in relay', e);
+    return res.status(500).json({ error: e.message, stack: e.stack });
   }
-
-  if (financialStatus !== 'refunded') {
-    // Partial refund, or something else — do not close the order.
-    return res.status(200).json({
-      skipped: true,
-      reason: `financial_status is "${financialStatus}", not a full refund`
-    });
-  }
-
-  const netsuiteUrl = process.env.NETSUITE_RESTLET_URL;
-  const authHeader = buildNetsuiteAuthHeader(netsuiteUrl);
-
-  const nsResponse = await fetch(netsuiteUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader },
-    body: JSON.stringify({ ...payload, financial_status: financialStatus })
-  });
-
-  const result = await nsResponse.json();
-  return res.status(nsResponse.ok ? 200 : 502).json(result);
 }
