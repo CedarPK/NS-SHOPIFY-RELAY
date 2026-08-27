@@ -95,6 +95,7 @@ function buildNetsuiteAuthHeader(url) {
 }
 
 export default async function handler(req, res) {
+console.log('HANDLER STARTED', req.method, new Date().toISOString());
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed' });
