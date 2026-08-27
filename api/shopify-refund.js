@@ -48,8 +48,9 @@ async function getShopifyAccessToken() {
     })
   });
 
-  if (!res.ok) {
-    throw new Error(`Shopify token request failed: ${res.status} ${res.statusText}`);
+ if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Shopify token request failed: ${res.status} ${res.statusText} — ${errorBody}`);
   }
 
   const data = await res.json();
