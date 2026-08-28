@@ -10,7 +10,8 @@ export const config = {
 
 import crypto from 'crypto';
 import OAuth from 'oauth-1.0a';
-
+process.on('unhandledRejection', (err) => console.error('UNHANDLED REJECTION:', err));
+process.on('uncaughtException', (err) => console.error('UNCAUGHT EXCEPTION:', err));
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
