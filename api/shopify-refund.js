@@ -75,6 +75,7 @@ console.log('STEP C: looking up order status');
   }
 console.log('STEP D: got order status response, status', res.status);
   const data = await res.json();
+  console.log('STEP E: financial_status value is', data.order.financial_status);
   return data.order.financial_status; // "refunded", "partially_refunded", "paid", etc.
 }
 
