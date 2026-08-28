@@ -38,7 +38,7 @@ function verifyShopifyHmac(rawBody, hmacHeader, secret) {
 // persist memory between calls anyway.
 async function getShopifyAccessToken() {
   const shop = process.env.SHOPIFY_SHOP_DOMAIN;
-
+console.log('STEP A: requesting Shopify access token');
   const res = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -50,6 +50,7 @@ async function getShopifyAccessToken() {
   });
 
  if (!res.ok) {
+   console.log('STEP B: got token response, status', res.status);
     const errorBody = await res.text();
     throw new Error(`Shopify token request failed: ${res.status} ${res.statusText} — ${errorBody}`);
   }
@@ -63,7 +64,7 @@ async function getShopifyOrderFinancialStatus(orderId) {
     console.log('CLIENT_ID present:', !!process.env.SHOPIFY_CLIENT_ID, 'length:', (process.env.SHOPIFY_CLIENT_ID || '').length);
   console.log('CLIENT_SECRET present:', !!process.env.SHOPIFY_CLIENT_SECRET, 'length:', (process.env.SHOPIFY_CLIENT_SECRET || '').length);
   const token = await getShopifyAccessToken();
-
+console.log('STEP C: looking up order status');
   const res = await fetch(
     `https://${shop}/admin/api/2024-01/orders/${orderId}.json?fields=id,financial_status`,
     { headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' } }
@@ -72,7 +73,7 @@ async function getShopifyOrderFinancialStatus(orderId) {
   if (!res.ok) {
     throw new Error(`Shopify order lookup failed: ${res.status} ${res.statusText}`);
   }
-
+console.log('STEP D: got order status response, status', res.status);
   const data = await res.json();
   return data.order.financial_status; // "refunded", "partially_refunded", "paid", etc.
 }
