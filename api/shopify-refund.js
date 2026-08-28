@@ -139,11 +139,12 @@ console.log('HANDLER STARTED', req.method, new Date().toISOString());
       console.error('NETSUITE_RESTLET_URL is not set');
       return res.status(500).json({ error: 'NETSUITE_RESTLET_URL environment variable is missing' });
     }
-
+console.log('STEP F: building NetSuite auth header');
     const authHeader = buildNetsuiteAuthHeader(netsuiteUrl);
-
+console.log('STEP G: auth header built successfully');
     let nsResponse;
     try {
+      console.log('STEP H: calling NetSuite RESTlet now');
       nsResponse = await fetch(netsuiteUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
@@ -153,7 +154,7 @@ console.log('HANDLER STARTED', req.method, new Date().toISOString());
       console.error('Could not reach NetSuite', e);
       return res.status(502).json({ error: `Could not reach NetSuite: ${e.message}` });
     }
-
+console.log('STEP I: got response from NetSuite, status', nsResponse.status);
     const rawResult = await nsResponse.text();
     let result;
     try {
