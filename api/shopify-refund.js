@@ -59,6 +59,8 @@ async function getShopifyAccessToken() {
 
 async function getShopifyOrderFinancialStatus(orderId) {
   const shop = process.env.SHOPIFY_SHOP_DOMAIN;
+    console.log('CLIENT_ID present:', !!process.env.SHOPIFY_CLIENT_ID, 'length:', (process.env.SHOPIFY_CLIENT_ID || '').length);
+  console.log('CLIENT_SECRET present:', !!process.env.SHOPIFY_CLIENT_SECRET, 'length:', (process.env.SHOPIFY_CLIENT_SECRET || '').length);
   const token = await getShopifyAccessToken();
 
   const res = await fetch(
