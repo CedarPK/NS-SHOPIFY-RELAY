@@ -97,7 +97,17 @@ function buildNetsuiteAuthHeader(url) {
     secret: process.env.NETSUITE_TOKEN_SECRET
   };
 
-  return oauth.toHeader(oauth.authorize(requestData, token));
+  const header = oauth.toHeader(oauth.authorize(requestData, token));
+
+  // NetSuite requires a "realm" parameter (your Account ID) inside the
+  // Authorization header — oauth-1.0a doesn't add this automatically,
+  // since it's specific to NetSuite, not standard OAuth 1.0a.
+  const accountIdMatch = url.match(/^https:\/\/([^.]+)\.restlets\.api\.netsuite\.com/);
+  const accountId = accountIdMatch ? accountIdMatch[1].toUpperCase().replace(/-/g, '_') : '';
+
+  header.Authorization = header.Authorization.replace('OAuth ', `OAuth realm="${accountId}", `);
+
+  return header;
 }
 
 export default async function handler(req, res) {
