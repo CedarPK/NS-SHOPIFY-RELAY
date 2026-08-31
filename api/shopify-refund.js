@@ -166,6 +166,7 @@ console.log('STEP G: auth header built successfully');
     }
 console.log('STEP I: got response from NetSuite, status', nsResponse.status);
     const rawResult = await nsResponse.text();
+    console.log('STEP I-2: NetSuite raw response body:', rawResult);
     let result;
     try {
       result = JSON.parse(rawResult);
